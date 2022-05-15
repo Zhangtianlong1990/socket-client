@@ -14,6 +14,7 @@
 
 @interface ViewController ()<GCDAsyncSocketDelegate>
 @property (nonatomic,strong) GCDAsyncSocket *clientSocket;
+@property (nonatomic,assign) NSTimeInterval reConnectTime;
 @end
 
 @implementation ViewController
@@ -47,10 +48,36 @@
     [_clientSocket disconnect];
 }
 
+- (void)reConnect{
+    
+    //超过一分钟就不再重连 所以只会重连5次 2^5 = 64
+    if (_reConnectTime >16) {
+        NSLog(@"重连次数超过5次，不再重连");
+        return;
+    }
+    
+    NSTimeInterval aReConnectTime = self.reConnectTime;
+    
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(aReConnectTime * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        NSLog(@"开始重连..._reConnectTime = %f",aReConnectTime);
+            [self connect];
+        });
+     
+        //重连时间2的指数级增长
+        if (_reConnectTime == 0) {
+            _reConnectTime = 2;
+        }else{
+            _reConnectTime *= 2;
+        }
+    
+}
+
 #pragma mark - GCDAsyncSocketDelegate
 
 - (void)socket:(GCDAsyncSocket *)sock didConnectToHost:(NSString *)host port:(uint16_t)port{
     NSLog(@"连接成功");
+    //每次正常连接的时候清零重连时间
+    _reConnectTime = 0;
     [_clientSocket readDataWithTimeout:-1 tag:0];
 }
 
@@ -60,7 +87,11 @@
 }
 
 - (void)socketDidDisconnect:(GCDAsyncSocket *)sock withError:(NSError *)err{
-    NSLog(@"断开连接%@",err.localizedDescription);
+    NSLog(@"断开连接,errorCode = %ld,err.localizedDescription = %@",err.code,err.localizedDescription);
+    //errorCode:0表示自己断开的，7表示服务端断开，61表示服务端未开启，被拒绝了
+    if (err.code != 0) {
+        [self reConnect];
+    }
 }
 
 #pragma mark - input
