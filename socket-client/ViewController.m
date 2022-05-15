@@ -9,12 +9,22 @@
 #import "GCDAsyncSocket.h"
 
 #define VA_COMADN_ID 0x00000001
+#define VA_COMADN_HEARTBEAT_ID 0x00000002
 #define server_host @"127.0.0.1"
 #define server_port 6969
+
+#define dispatch_main_async_safe(block)\
+    if ([NSThread isMainThread]) {\
+        block();\
+    } else {\
+        dispatch_async(dispatch_get_main_queue(), block);\
+    }
+
 
 @interface ViewController ()<GCDAsyncSocketDelegate>
 @property (nonatomic,strong) GCDAsyncSocket *clientSocket;
 @property (nonatomic,assign) NSTimeInterval reConnectTime;
+@property (nonatomic,strong) NSTimer *heartBeat;
 @end
 
 @implementation ViewController
@@ -34,6 +44,40 @@
         _clientSocket = [[GCDAsyncSocket alloc] initWithDelegate:self delegateQueue:dispatch_get_main_queue()];
     }
 }
+
+
+//初始化心跳
+- (void)initHeartBeat
+{
+ 
+    dispatch_main_async_safe(^{
+ 
+        [self destoryHeartBeat];
+ 
+        __weak typeof(self) weakSelf = self;
+        //心跳设置为3分钟，NAT超时一般为5分钟
+        self.heartBeat = [NSTimer scheduledTimerWithTimeInterval:3 repeats:YES block:^(NSTimer * _Nonnull timer) {
+            NSLog(@"send heart Beat");
+            //和服务端约定好发送什么作为心跳标识，尽可能的减小心跳包大小
+            [weakSelf sendHeartBeat];
+        }];
+        [[NSRunLoop currentRunLoop]addTimer:self.heartBeat forMode:NSRunLoopCommonModes];
+    })
+ 
+}
+
+//取消心跳
+- (void)destoryHeartBeat
+{
+    dispatch_main_async_safe(^{
+        if (self.heartBeat) {
+            [self.heartBeat invalidate];
+            self.heartBeat = nil;
+        }
+    })
+ 
+}
+
 
 - (BOOL)connect{
     NSError *error = nil;
@@ -78,6 +122,8 @@
     NSLog(@"连接成功");
     //每次正常连接的时候清零重连时间
     _reConnectTime = 0;
+//    连接成功了开始发送心跳
+    [self initHeartBeat];
     [_clientSocket readDataWithTimeout:-1 tag:0];
 }
 
@@ -92,6 +138,8 @@
     if (err.code != 0) {
         [self reConnect];
     }
+    //断开连接时销毁心跳
+    [self destoryHeartBeat];
 }
 
 #pragma mark - input
@@ -145,6 +193,23 @@
     
     [_clientSocket writeData:totalData withTimeout:-1 tag:0];
     
+}
+
+- (void)sendHeartBeat{
+
+    NSMutableData *totalData = [NSMutableData data];
+    
+    //拼接前4个字节
+    unsigned int totalSize = 4 + 4;
+    NSData *totalSizeData = [NSData dataWithBytes:&totalSize length:4];
+    [totalData appendData:totalSizeData];
+    
+    //拼接指令
+    unsigned int commanID = VA_COMADN_HEARTBEAT_ID;
+    NSData *commanIDData = [NSData dataWithBytes:&commanID length:4];
+    [totalData appendData:commanIDData];
+    
+    [_clientSocket writeData:totalData withTimeout:-1 tag:0];
 }
 
 #pragma mark - UI
