@@ -56,7 +56,7 @@
  
         __weak typeof(self) weakSelf = self;
         //心跳设置为3分钟，NAT超时一般为5分钟
-        self.heartBeat = [NSTimer scheduledTimerWithTimeInterval:3 repeats:YES block:^(NSTimer * _Nonnull timer) {
+        self.heartBeat = [NSTimer scheduledTimerWithTimeInterval:3*60 repeats:YES block:^(NSTimer * _Nonnull timer) {
             NSLog(@"send heart Beat");
             //和服务端约定好发送什么作为心跳标识，尽可能的减小心跳包大小
             [weakSelf sendHeartBeat];
@@ -97,6 +97,7 @@
     //超过一分钟就不再重连 所以只会重连5次 2^5 = 64
     if (_reConnectTime >16) {
         NSLog(@"重连次数超过5次，不再重连");
+        _reConnectTime = 0;
         return;
     }
     
@@ -135,6 +136,7 @@
 - (void)socketDidDisconnect:(GCDAsyncSocket *)sock withError:(NSError *)err{
     NSLog(@"断开连接,errorCode = %ld,err.localizedDescription = %@",err.code,err.localizedDescription);
     //errorCode:0表示自己断开的，7表示服务端断开，61表示服务端未开启，被拒绝了
+    //32是Broken pipe，APP到后台的时候
     if (err.code != 0) {
         [self reConnect];
     }
